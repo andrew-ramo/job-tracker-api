@@ -157,3 +157,43 @@ export async function getCurrentUser(userId: string): Promise<SafeUser> {
 
   return toSafeUser(user);
 }
+
+export async function updateProfile(userId: string, input: { name?: string; email?: string }): Promise<SafeUser> {
+  if (input.email) {
+    const existing = await prisma.user.findUnique({ where: { email: input.email } });
+    if (existing && existing.id !== userId) {
+      throw ApiError.conflict("Email already in use");
+    }
+  }
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(input.name && { name: input.name }),
+      ...(input.email && { email: input.email }),
+    },
+  });
+
+  return toSafeUser(user);
+}
+
+export async function changePassword(userId: string, input: { currentPassword: string; newPassword: string }): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw ApiError.notFound("User not found");
+
+  const isMatch = await verifyPassword(input.currentPassword, user.passwordHash);
+  if (!isMatch) throw ApiError.unauthorized("Incorrect current password");
+
+  const newHash = await hashPassword(input.newPassword);
+  
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: newHash },
+  });
+
+  // Revoke all existing refresh tokens for security
+  await prisma.refreshToken.updateMany({
+    where: { userId },
+    data: { revokedAt: new Date() },
+  });
+}

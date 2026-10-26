@@ -30,3 +30,13 @@ export async function me(req: Request, res: Response): Promise<void> {
   const user = await authService.getCurrentUser(req.user!.userId);
   res.status(200).json({ success: true, data: user });
 }
+
+export async function updateProfile(req: Request, res: Response): Promise<void> {
+  const user = await authService.updateProfile(req.user!.userId, req.body);
+  res.status(200).json({ success: true, data: user });
+}
+
+export async function changePassword(req: Request, res: Response): Promise<void> {
+  await authService.changePassword(req.user!.userId, req.body);
+  res.status(200).json({ success: true, message: "Password updated successfully" });
+}
