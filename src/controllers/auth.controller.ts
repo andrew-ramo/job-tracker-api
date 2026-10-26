@@ -40,3 +40,18 @@ export async function changePassword(req: Request, res: Response): Promise<void>
   await authService.changePassword(req.user!.userId, req.body);
   res.status(200).json({ success: true, message: "Password updated successfully" });
 }
+
+export async function forgotPassword(req: Request, res: Response): Promise<void> {
+  const { email } = req.body as { email: string };
+  await authService.forgotPassword(email);
+  res.status(200).json({ 
+    success: true, 
+    message: "If an account exists, a reset link has been sent to your email." 
+  });
+}
+
+export async function resetPassword(req: Request, res: Response): Promise<void> {
+  const { token, newPassword } = req.body as { token: string; newPassword: string };
+  await authService.resetPassword(token, newPassword);
+  res.status(200).json({ success: true, message: "Password reset successfully" });
+}

@@ -1,5 +1,8 @@
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
+import { Resend } from "resend";
 import { prisma } from "../config/prisma";
+import { env } from "../config/env";
 import { ApiError } from "../utils/apiError.util";
 import { hashPassword, verifyPassword } from "../utils/password.util";
 import {
@@ -8,6 +11,8 @@ import {
   verifyRefreshToken,
 } from "../utils/jwt.util";
 import type { RegisterInput, LoginInput } from "../schemas";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 type SafeUser = {
   id: string;
@@ -107,7 +112,6 @@ export async function refresh(refreshToken: string): Promise<{
   accessToken: string;
   refreshToken: string;
 }> {
-  // 1) Verify JWT signature + expiry
   let payload: { userId: string; email: string };
   try {
     payload = verifyRefreshToken(refreshToken);
@@ -115,7 +119,6 @@ export async function refresh(refreshToken: string): Promise<{
     throw ApiError.unauthorized("Invalid or expired refresh token");
   }
 
-  // 2) Verify it exists in DB and is still valid (not revoked, not expired)
   const stored = await prisma.refreshToken.findUnique({
     where: { token: refreshToken },
   });
@@ -124,7 +127,6 @@ export async function refresh(refreshToken: string): Promise<{
     throw ApiError.unauthorized("Refresh token is no longer valid");
   }
 
-  // 3) Rotate: revoke the old token before issuing a new one
   await prisma.refreshToken.update({
     where: { id: stored.id },
     data: { revokedAt: new Date() },
@@ -191,9 +193,59 @@ export async function changePassword(userId: string, input: { currentPassword: s
     data: { passwordHash: newHash },
   });
 
-  // Revoke all existing refresh tokens for security
   await prisma.refreshToken.updateMany({
     where: { userId },
     data: { revokedAt: new Date() },
   });
+}
+
+export async function forgotPassword(email: string): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { email } });
+  
+  if (!user) return;
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60); 
+
+  await prisma.passwordResetToken.create({
+    data: { token, userId: user.id, expiresAt },
+  });
+
+  const resetLink = `${env.FRONTEND_URL}/reset-password?token=${token}`;
+
+  await resend.emails.send({
+    from: "onboarding@resend.dev", 
+    to: user.email,
+    subject: "Reset your Applied password",
+    html: `
+      <h2>Reset your password</h2>
+      <p>Click the link below to reset your password. This link is valid for 1 hour.</p>
+      <a href="${resetLink}" style="display: inline-block; padding: 10px 20px; background-color: #6366F1; color: white; text-decoration: none; border-radius: 5px;">Reset Password</a>
+      <p>If you didn't request this, you can safely ignore this email.</p>
+    `,
+  });
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  const resetToken = await prisma.passwordResetToken.findUnique({ where: { token } });
+
+  if (!resetToken || resetToken.expiresAt < new Date()) {
+    throw ApiError.badRequest("Invalid or expired reset token");
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash },
+    }),
+    prisma.passwordResetToken.delete({
+      where: { id: resetToken.id },
+    }),
+    prisma.refreshToken.updateMany({
+      where: { userId: resetToken.userId },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
 }

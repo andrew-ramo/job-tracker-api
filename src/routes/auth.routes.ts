@@ -8,7 +8,9 @@ import {
   loginSchema, 
   refreshSchema,
   updateProfileSchema,
-  changePasswordSchema
+  changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema
 } from "../schemas";
 
 const router = Router();
@@ -19,6 +21,9 @@ router.post("/register", validate(registerSchema), authController.register);
 router.post("/login", validate(loginSchema), authController.login);
 router.post("/refresh", validate(refreshSchema), authController.refresh);
 router.post("/logout", validate(refreshSchema), authController.logout);
+
+router.post("/forgot-password", validate(forgotPasswordSchema), authController.forgotPassword);
+router.post("/reset-password", validate(resetPasswordSchema), authController.resetPassword);
 
 router.get("/me", authenticate, authController.me);
 router.patch("/me", authenticate, validate(updateProfileSchema), authController.updateProfile);
